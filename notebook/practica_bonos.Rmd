@@ -1,0 +1,268 @@
+---
+title: "tipos_de_interes"
+author: "Garcia Giron A."
+date: "09/8/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+
+```{r Carga de librerías, include=FALSE}
+library(ggplot2)
+library(readr)
+library(factoextra)
+library(FactoMineR)
+library(reshape2)
+library(Hmisc) # Para matriz 
+library(corrplot) 
+library(PerformanceAnalytics) #correlaciones con histogramas y scaterplots
+library(psych) # Para la prueba de esfericidad de Barlett
+library(rela) # Kaiser Meyer
+```
+
+## Visualización de datos
+Head y Tail
+
+```{r carga de datos, echo=FALSE}
+tiposdolar = read.csv("../data/ACPTIUSD.csv", sep = ";")
+head(tiposdolar)
+tail(tiposdolar)
+View(tiposdolar)
+```
+
+## Análisis exploratorio de los datos
+
+```{r}
+# Visualización
+
+tiposdolar2 = tiposdolar[complete.cases(tiposdolar),] 
+View(tiposdolar2)
+
+#con este paso reducimos de 978 a 783 el numero de filas
+
+#pasamos a formato date la primera columna
+
+tiposdolar2$Fechas = as.Date(tiposdolar2$X, format = "%d/%m/%Y") 
+
+
+tiposdolar2 = tiposdolar2[,2:12]
+
+
+data_long = melt(tiposdolar2, id = "Fechas") # Para estirar el dataframe 
+
+# Observamos la distr de las variables
+ggplot(data = data_long, aes(x = Fechas, y = value,  color = variable)) +
+  #geom_line()
+  geom_point(alpha = 0.3,  position = position_jitter()) +  #stat_smooth(method = "lm") +
+  labs(y = "rate", colour = "Bono") 
+
+```
+
+
+```{r, include= FALSE}
+tiposdolar.act = tiposdolar[1:949, 1:9] # Creamos un data frame con las observaciones activas (training)
+head(tiposdolar.act)
+str(tiposdolar.act)
+
+# Eliminamos fechas 
+
+Dates = as.Date(tiposdolar.act$X, format = "%d/%m/%y") #creamos un vector de fechas...
+tiposdolar.act = tiposdolar.act[,-1] #... para extraer la primera columna (de fechas) del objeto de trabajo y asi hacer summary
+head(Dates)
+str(Dates)
+summary(tiposdolar.act)
+```
+
+Realizamos un summary de las variables de nuestro dataset
+
+```{r}
+#Otra forma de hacer el summary con dos decimales
+
+tiposdolar.act_stats = data.frame(
+  Min = apply(tiposdolar.act, 2, min, na.rm = TRUE), # mín
+  Q1 = apply(tiposdolar.act, 2, quantile, 1/4, na.rm = TRUE), # 1er cuartil
+  Med = apply(tiposdolar.act, 2, median, na.rm = TRUE), # mediana
+  Mean = apply(tiposdolar.act, 2, mean, na.rm = TRUE), # media
+  SD = apply(tiposdolar.act, 2, sd), # Desviación típica
+  Q3 = apply(tiposdolar.act, 2, quantile, 3/4, na.rm = TRUE), # 3er cuartil
+  Max = apply(tiposdolar.act, 2, max, na.rm = TRUE) # Máx
+)
+tiposdolar.act_stats = round(tiposdolar.act_stats, 1)
+tiposdolar.act_stats
+```
+
+__Análisis de la matriz de correlación__
+
+```{r, include = FALSE}
+cor.mat = round(cor(tiposdolar.act),2) 
+cor.mat # Hay NAs, no nos sive
+```
+
+Nos indica el grado de correlacion entre las variables
+```{r, include= FALSE}
+cor.mat = round(cor(tiposdolar.act, use = "complete.obs"),2) # Matriz de #correlación sin NAs, mejor esta opcion que no la de pairwise
+cor.mat
+```
+ comenTARIO
+
+
+```{r}
+cor.mat.nds = rcorr(as.matrix(tiposdolar.act))
+cor.mat.nds
+```
+El grafico de correlaciones que presentamos en la parte inferior de este texto nos muestra que cada titulo esta bastante correlacionado con el del periodo inmediatamente posterior e incluso,  a partir de un año,  suelen presentar correlaciones altas entre ellos
+
+```{r}
+corrplot(cor.mat, type = "lower", order = "original", 
+         tl.col = "black", tl.cex = 0.7, tl.srt = 45) 
+
+# las correlaciones positivas en azul, las negativas en rojo
+#type=lower hace ref a cómo queremos visualizar la matriz, si por debajo,
+         #completa o por encima de la diagonal principal;
+         # Method cambia la salida; probar "pie", "number" o "color"
+
+```
+Para visualizar clusters utilizamos el correlograma siguiente. 
+```{r}
+corrplot(cor.mat, type = "full", order = "hclust", addrect = 3,
+         tl.col = "black", tl.cex = 0.7, tl.srt = 45) #permite visualizar clusters
+
+```
+En el cluster anterior vemos claramente diferenciados tres grupos
+corto plazo 1my 3m.
+medio plazo 6m y 12m .
+largo plazo 2y, 3y, 4y, 5y.
+
+```{r}
+chart.Correlation(tiposdolar.act, histogram = TRUE, pch = 19)
+
+
+# La distribución de cada variable en la diagonal;
+# Por debajo: diagramas de dispersión por pares con línea de ajuste
+# Por encima: el valor del coef de corr con el nds como estrellas:
+# p-valores(0, 0.001, 0.01, 0.05, 0.1, 1) <=> símbolos("***", "**", "*", ".", " ")
+```
+
+Sustancialmente bajo
+vamos a hallar el determinante de la matriz de correlaciones.
+entendemos debido a su cuantia que hay fuerte asociacion entre las variables
+
+```{r}
+det(cor.mat)
+```
+p de esfericidad de Bartlett nos va a permitir verificar el dataset, es decir, que sea idoneo para reducir su dimension
+
+```{r}
+cortest.bartlett(tiposdolar.act)
+```
+```{r}
+library(rela)
+```
+
+```{r}
+PAF  <- paf(as.matrix(tiposdolar.act)) # PAF Principal Axis Factoring
+summary(PAF)
+```
+
+Indice KMO de Kaiser-Meyer-Olkin.
+este contrasta si las correlaciones entre las variables son suficientemente pequeñas, el KMO varia entre 0 y 1 unos valores proximos a cero indican que el analisis puede no ser una buena idea
+
+
+```{r}
+PAF$KMO
+```
+Resultado de 0.83, porseguimos con el estudio ya que el valor se aproxima a uno.
+
+
+Matriz de Adecuación de la Muestra (MSA)
+Ya que los coef son altos  mantenemos la misma conclusión que anteriormente.
+```{r}
+PAF$MSA
+```
+
+Hacemos honor al nombre de la asignatura reduciendo la dimension, con dos componentes tenemos un 98,63% de la varianza explicada, por ende, continuamos con estos dos.
+
+```{r}
+acp = PCA(tiposdolar.act, graph = T)
+round(acp$eig, 2)
+```
+Gráfico de sedimentación o scree plot.
+
+```{r}
+fviz_eig(acp, addlabels = TRUE, hjust = -0.3) +
+        labs(title = "Gráfico de sedimentación", x = "Dimensiones", y = "% Varianza explicada") + theme_minimal()
+
+```
+
+En el grafico se ve que la aportacion de los dos primeros componentes es sustancial
+
+## rotación Varimax
+
+
+"Con la Rotación Varimax de todos los factores se obtiene un mejor resultado, ya que al hacer una rotación ortogonal, tiende a asimilar cada variable con un eje. Esto facilita el significado de la interpretación de los componentes seleccionados" (estamatica, 2020)
+
+
+```{r}
+rotacion <- fa(tiposdolar.act, fm = "minres", nfactors = 2, rotate = "varimax")
+print(rotacion)
+```
+
+
+
+
+
+
+Prediccion
+```{r}
+Entreno = tiposdolar2[1:755, 1:10]
+Entreno
+
+# elijo una muestra inferior ya que en mi dataset los na fueron neutralizados y no reemplazados por valores medios que, en ese caso, permitirian tratar  mas proporcion
+
+testeo = tiposdolar2 [756:783 , 1:10]
+testeo
+```
+
+```{r}
+library(pls)
+```
+
+modelo acp
+```{r}
+pred <- pcr(formula= IRS.10Y ~ ., data= Entreno)
+summary(pred)
+```
+
+Calculo del error
+
+```{r}
+prediccion <- predict(pred, newdata = testeo, ncomp = 2)
+prediccion
+```
+
+```{r}
+cbind(prediccion, testeo$IRS.10Y)
+```
+
+```{r}
+MSE <- mean((testeo$IRS.10Y - prediccion)^2)
+MSE
+```
+El error es de: 0.052682
+
+#El objetivo de esta técnica estadística es reducir el numero de variables con las que vamos a trabajar. quizas esto no sea un problema con el actual dataset pero de cara a mas varibles sintetizarlas y reducir la información con la que trabajamos al máximo perdiendo el mínimo de información nos dara una eficiencia computacional relevante de cara a la optimizacion del analisis.
+
+#Hemos reducido a dos los componentes con éxito.
+
+
+#Referencias
+
+Apuntes de la asignatura.
+Rotacion Varimax, estamatematica, 2020. a partir de: https://estamatica.net/analisis-factorial-malaga/ 
+
